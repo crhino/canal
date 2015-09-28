@@ -54,6 +54,19 @@ pub struct Broadcast<T> {
     inner: Arc<Inner<T>>,
 }
 
+impl<T> Broadcast<T> {
+    pub fn new() -> Broadcast<T> {
+        let inner = Arc::new(Inner { senders: RwLock::new(Vec::new()) });
+        Broadcast { inner: inner }
+    }
+
+    pub fn consume(&self) -> Consumer<T> {
+        let (b, c) = channel();
+        self.inner.add_sender(b);
+        Consumer { inner: self.inner.clone(), receiver: c }
+    }
+}
+
 impl<T: Clone> Broadcast<T> {
     pub fn send(&self, data: T) -> Result<(), BroadcastError<T>> {
         let guard = self.inner.read_senders();
@@ -117,10 +130,8 @@ impl<T> Clone for Consumer<T> {
 }
 
 pub fn broadcast_channel<T: Clone>() -> (Broadcast<T>, Consumer<T>) {
-    let (b, c) = channel();
-    let inner = Arc::new(Inner { senders: RwLock::new(vec!(b)) });
-    let broadcast = Broadcast { inner: inner.clone() };
-    let consumer = Consumer { inner: inner, receiver: c };
+    let broadcast = Broadcast::new();
+    let consumer = broadcast.consume();
     (broadcast, consumer)
 }
 
