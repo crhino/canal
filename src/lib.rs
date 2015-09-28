@@ -112,7 +112,7 @@ pub struct Consumer<T> {
 }
 
 impl<T> Consumer<T> {
-    fn recv(&self) -> Result<T, BroadcastError<T>> {
+    pub fn recv(&self) -> Result<T, BroadcastError<T>> {
         let data = try!(self.receiver.recv());
         Ok(data)
     }
