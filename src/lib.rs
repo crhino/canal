@@ -65,11 +65,24 @@ impl<T: Clone> Broadcast<T> {
     }
 }
 
+// We implement Send/Sync here since we guarantee that the Sender<T>s in the
+// vec only have `send()` called by the Broadcast struct. We need sync in order
+// to share the vector with the Consumer to add senders too.
+//
+// TODO: Is there a way to not need to implement these traits?
+//
+// The same trait bounds on T are used here as in RwLock.
+unsafe impl<T: Sync + Send + ?Sized> Sync for Inner<T> {}
+unsafe impl<T: Sync + Send + ?Sized> Send for Inner<T> {}
 struct Inner<T> {
     senders: RwLock<Vec<Sender<T>>>,
 }
 
 impl<T> Inner<T> {
+    // This should only be called by Broadcast. Something may or may not go
+    // horriblely wrong if send() is called from multiple threads.
+    //
+    // TODO: Disallow Consumer from calling this.
     fn read_senders<'a>(&'a self) -> RwLockReadGuard<'a, Vec<Sender<T>>> {
         self.senders.read().unwrap()
     }
@@ -118,6 +131,7 @@ mod test {
 
     use std::sync::{Arc, RwLock};
     use std::sync::mpsc::{channel};
+    use std::thread::spawn;
 
     #[test]
     fn inner_iterator() {
@@ -148,5 +162,28 @@ mod test {
         let res = c2.recv();
         assert!(res.is_ok());
         assert_eq!(res.unwrap(), 9u8)
+    }
+
+    #[test]
+    fn test_send_threads() {
+        let (p, c1) = broadcast_channel();
+        let c2 = c1.clone();
+
+        let (s1, r1) = channel();
+        let (s2, r2) = channel();
+
+        let _thread = spawn(move || {
+            assert_eq!(c1.recv().unwrap(), 9u8);
+            s1.send(10u8).unwrap();
+        });
+
+        let _thread = spawn(move || {
+            assert_eq!(c2.recv().unwrap(), 9u8);
+            s2.send(10u8).unwrap();
+        });
+
+        assert!(p.send(9u8).is_ok());
+        assert!(r1.recv().is_ok());
+        assert!(r2.recv().is_ok());
     }
 }
