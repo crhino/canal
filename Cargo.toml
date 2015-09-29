@@ -5,3 +5,6 @@ authors = ["crhino <piraino.chris@gmail.com>"]
 
 readme = "./README.md"
 license = "BSD-3-Clause"
+
+[features]
+nightly = []

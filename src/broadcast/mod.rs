@@ -85,8 +85,8 @@ impl<T: Clone> Broadcast<T> {
 // TODO: Is there a way to not need to implement these traits?
 //
 // The same trait bounds on T are used here as in RwLock.
-unsafe impl<T: Sync + Send + ?Sized> Sync for Inner<T> {}
-unsafe impl<T: Sync + Send + ?Sized> Send for Inner<T> {}
+unsafe impl<T: Sync + Send + Sized> Sync for Inner<T> {}
+unsafe impl<T: Sync + Send + Sized> Send for Inner<T> {}
 struct Inner<T> {
     senders: RwLock<Vec<Sender<T>>>,
 }
