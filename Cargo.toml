@@ -3,8 +3,12 @@ name = "canal"
 version = "0.1.0"
 authors = ["crhino <piraino.chris@gmail.com>"]
 
+description = "A library for multithreaded concurrency primitives, including queues and channels."
+
+repository = "https://github.com/crhino/canal"
 readme = "./README.md"
 license = "BSD-3-Clause"
+keywords = ["concurrency"]
 
 [features]
 nightly = []
