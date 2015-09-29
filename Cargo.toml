@@ -1,6 +1,6 @@
 [package]
 name = "canal"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["crhino <piraino.chris@gmail.com>"]
 
 description = "A library for multithreaded concurrency primitives, including queues and channels."
