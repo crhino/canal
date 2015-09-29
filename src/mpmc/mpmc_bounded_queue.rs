@@ -25,8 +25,6 @@
  * policies, either expressed or implied, of Dmitry Vyukov.
  */
 
-#![allow(missing_docs, dead_code)]
-
 // http://www.1024cores.net/home/lock-free-algorithms/queues/bounded-mpmc-queue
 
 // This queue is copy pasted from old rust stdlib.
@@ -49,13 +47,23 @@ unsafe impl<T: Send> Send for Node<T> {}
 unsafe impl<T: Sync> Sync for Node<T> {}
 
 struct State<T> {
+    #[allow(dead_code)]
     pad0: [u8; 64],
+
     buffer: Vec<UnsafeCell<Node<T>>>,
     mask: usize,
+
+    #[allow(dead_code)]
     pad1: [u8; 64],
+
     enqueue_pos: AtomicUsize,
+
+    #[allow(dead_code)]
     pad2: [u8; 64],
+
     dequeue_pos: AtomicUsize,
+
+    #[allow(dead_code)]
     pad3: [u8; 64],
 }
 

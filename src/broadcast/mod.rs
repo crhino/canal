@@ -1,4 +1,4 @@
-/// A Single-Producer, Multiple-Consumer queue.
+//! A Single-Producer, Multiple-Consumer queue.
 
 use std::sync::mpsc::{channel, Receiver, RecvError, Sender, SendError};
 use std::sync::{Arc, RwLock, RwLockReadGuard};
@@ -7,8 +7,11 @@ use std::any::Any;
 use std::error::Error;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
+/// Error from broadcast module.
 pub enum BroadcastError<T> {
+    /// Send error
     SendError(T),
+    /// Receive error
     RecvError,
 }
 
@@ -50,16 +53,19 @@ impl<T> From<RecvError> for BroadcastError<T> {
     }
 }
 
+/// Struct that sends message on a broadcast pattern.
 pub struct Broadcast<T> {
     inner: Arc<Inner<T>>,
 }
 
 impl<T> Broadcast<T> {
+    /// Create a new Broadcast struct.
     pub fn new() -> Broadcast<T> {
         let inner = Arc::new(Inner { senders: RwLock::new(Vec::new()) });
         Broadcast { inner: inner }
     }
 
+    /// Create a Consumer that listens to messages from the Broadcaster.
     pub fn consume(&self) -> Consumer<T> {
         let (b, c) = channel();
         self.inner.add_sender(b);
@@ -68,6 +74,7 @@ impl<T> Broadcast<T> {
 }
 
 impl<T: Clone> Broadcast<T> {
+    /// Send a message on the broadcast.
     pub fn send(&self, data: T) -> Result<(), BroadcastError<T>> {
         let guard = self.inner.read_senders();
         for s in guard.iter() {
@@ -106,12 +113,16 @@ impl<T> Inner<T> {
     }
 }
 
+/// Struct that receives messages from Broadcast.
 pub struct Consumer<T> {
     inner: Arc<Inner<T>>,
     receiver: Receiver<T>,
 }
 
 impl<T> Consumer<T> {
+    /// Receive a message from the Broadcast.
+    ///
+    /// This function will block.
     pub fn recv(&self) -> Result<T, BroadcastError<T>> {
         let data = try!(self.receiver.recv());
         Ok(data)
@@ -129,6 +140,7 @@ impl<T> Clone for Consumer<T> {
     }
 }
 
+/// Create a (Broadcast<T>, Consumer<T>) pair.
 pub fn broadcast_channel<T: Clone>() -> (Broadcast<T>, Consumer<T>) {
     let broadcast = Broadcast::new();
     let consumer = broadcast.consume();
