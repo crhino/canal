@@ -1,3 +1,3 @@
-### Broadcast
+### Canal
 
-A simple singl-producer, multi-consumer channel implementation.
+A multi-threaded queue and communication library.

@@ -1,5 +1,5 @@
 [package]
-name = "broadcast"
+name = "canal"
 version = "0.1.0"
 authors = ["crhino <piraino.chris@gmail.com>"]
 
