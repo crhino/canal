@@ -8,11 +8,6 @@ mod mpmc_bounded_queue;
 use self::mutex_linked_list::MutexLinkedList;
 use self::mpmc_bounded_queue::Queue;
 
-trait MPMCQueue<T> {
-    fn push(&self, value: T) -> Result<(), T>;
-    fn pop(&self) -> Option<T>;
-}
-
 enum QueueType<T> {
     Mutex(MutexLinkedList<T>),
     LockFree(Queue<T>),

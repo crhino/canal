@@ -1,4 +1,3 @@
-use mpmc::{MPMCQueue};
 use std::cell::{RefCell};
 use std::ptr;
 use std::ops::DerefMut;
@@ -53,12 +52,12 @@ impl<T> MutexLinkedList<T> {
     }
 }
 
-impl<T: Send> MPMCQueue<T> for MutexLinkedList<T> {
-    fn push(&self, value: T) -> Result<(), T> {
+impl<T: Send> MutexLinkedList<T> {
+    pub fn push(&self, value: T) -> Result<(), T> {
         self.inner.push(value)
     }
 
-    fn pop(&self) -> Option<T> {
+    pub fn pop(&self) -> Option<T> {
         self.inner.pop()
     }
 }
@@ -120,7 +119,7 @@ impl<T> Drop for ListInner<T> {
 #[cfg(test)]
 mod test {
     use super::MutexLinkedList;
-    use mpmc::{MPMCQueue, mutex_mpmc_channel};
+    use mpmc::{mutex_mpmc_channel};
     use std::thread::spawn;
 
     #[test]

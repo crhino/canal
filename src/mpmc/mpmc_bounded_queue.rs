@@ -36,8 +36,6 @@ use std::cell::UnsafeCell;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::{Relaxed, Release, Acquire};
 
-use mpmc::{MPMCQueue};
-
 struct Node<T> {
     sequence: AtomicUsize,
     value: Option<T>,
@@ -166,14 +164,12 @@ impl<T: Send> Queue<T> {
             state: Arc::new(State::with_capacity(capacity))
         }
     }
-}
 
-impl<T: Send> MPMCQueue<T> for Queue<T> {
-    fn push(&self, value: T) -> Result<(), T> {
+    pub fn push(&self, value: T) -> Result<(), T> {
         self.state.push(value)
     }
 
-    fn pop(&self) -> Option<T> {
+    pub fn pop(&self) -> Option<T> {
         self.state.pop()
     }
 }
@@ -188,7 +184,7 @@ impl<T: Send> Clone for Queue<T> {
 mod tests {
     use std::thread;
     use std::sync::mpsc::channel;
-    use mpmc::{MPMCQueue, mpmc_channel};
+    use mpmc::{mpmc_channel};
     use super::Queue;
 
     #[test]
