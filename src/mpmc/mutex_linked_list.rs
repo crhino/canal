@@ -40,11 +40,13 @@ impl<T> ListInner<T> {
     }
 }
 
+/// A mutex-locked List that is safe for push/pop on multiple threads.
 pub struct MutexLinkedList<T> {
     inner: Arc<ListInner<T>>,
 }
 
 impl<T> MutexLinkedList<T> {
+    /// Create a new MutexLinkedList.
     pub fn new() -> MutexLinkedList<T> {
         MutexLinkedList {
             inner: Arc::new(ListInner::new()),
@@ -53,10 +55,14 @@ impl<T> MutexLinkedList<T> {
 }
 
 impl<T: Send> MutexLinkedList<T> {
-    pub fn push(&self, value: T) -> Result<(), T> {
+    /// Push a value onto queue.
+    pub fn push(&self, value: T) {
         self.inner.push(value)
     }
 
+    /// Pop a value off the queue.
+    ///
+    /// If the queue is empty, None is returned.
     pub fn pop(&self) -> Option<T> {
         self.inner.pop()
     }
@@ -69,7 +75,7 @@ impl<T: Send> Clone for MutexLinkedList<T> {
 }
 
 impl<T: Send> ListInner<T> {
-    fn push(&self, value: T) -> Result<(), T> {
+    fn push(&self, value: T) {
         unsafe {
             let node = Node::new(value);
 
@@ -80,7 +86,6 @@ impl<T: Send> ListInner<T> {
 
             *(self.head.borrow_mut().deref_mut()) = node;
         }
-        Ok(())
     }
 
     fn pop(&self) -> Option<T> {
@@ -119,15 +124,14 @@ impl<T> Drop for ListInner<T> {
 #[cfg(test)]
 mod test {
     use super::MutexLinkedList;
-    use mpmc::{mutex_mpmc_channel};
     use std::thread::spawn;
 
     #[test]
     fn test_push_pop() {
         let q = MutexLinkedList::new();
         assert!(q.pop().is_none());
-        assert!(q.push(1).is_ok());
-        assert!(q.push(2).is_ok());
+        q.push(1);
+        q.push(2);
         assert_eq!(q.pop().unwrap(), 1);
         assert_eq!(q.pop().unwrap(), 2);
     }
@@ -139,7 +143,7 @@ mod test {
         for i in 0..10 {
             let qu = q.clone();
             guard_vec.push(spawn(move || {
-                assert!(qu.push(i as u8).is_ok());
+                qu.push(i as u8);
             }));
         }
 
@@ -164,42 +168,6 @@ mod test {
 
         for thr in guard_vec.into_iter() {
             thr.join().unwrap();
-        }
-    }
-
-    #[test]
-    fn test_producer_consumer() {
-        let (sn, rc) = mutex_mpmc_channel();
-
-        let mut guard_vec = Vec::new();
-        for i in 0..10 {
-            let sn = sn.clone();
-            guard_vec.push(spawn(move || {
-                assert!(sn.send(i as u8).is_ok());
-            }));
-        }
-
-        for x in guard_vec.into_iter() {
-            x.join().unwrap();
-        }
-
-        guard_vec = Vec::new();
-        for _i in 0..10 {
-            let rc = rc.clone();
-            guard_vec.push(spawn(move || {
-                let popped = rc.recv().unwrap();
-                let mut found = false;
-                for x in 0..10 {
-                    if popped == x {
-                        found = true
-                    }
-                }
-                assert!(found);
-            }));
-        }
-
-        for x in guard_vec.into_iter() {
-            x.join().unwrap();
         }
     }
 }

@@ -5,42 +5,58 @@
 mod mutex_linked_list;
 mod mpmc_bounded_queue;
 
-use self::mutex_linked_list::MutexLinkedList;
-use self::mpmc_bounded_queue::Queue;
+pub use self::mutex_linked_list::MutexLinkedList;
+pub use self::mpmc_bounded_queue::LockFreeQueue;
 
-enum QueueType<T> {
-    Mutex(MutexLinkedList<T>),
-    LockFree(Queue<T>),
+// use std::sync::atomic::{AtomicUsize, Ordering};
+
+struct Inner<T> {
+    queue: LockFreeQueue<T>,
+}
+
+impl<T> Inner<T> {
+    fn new(cap: usize) -> Inner<T> {
+        Inner { queue: LockFreeQueue::with_capacity(cap) }
+    }
+}
+
+impl<T> Clone for Inner<T> {
+    fn clone(&self) -> Inner<T> {
+        Inner { queue: self.queue.clone() }
+    }
+}
+
+impl<T: Send> Inner<T> {
+    fn send(&self, val: T) -> Result<(), T> {
+        self.queue.push(val)
+    }
+
+    fn recv(&self) -> Option<T> {
+        self.queue.pop()
+    }
 }
 
 /// The sending-half of the mpmc channel.
 pub struct Sender<T> {
-    inner: QueueType<T>,
+    inner: Inner<T>,
 }
 
 impl<T: Send> Sender<T> {
     /// Sends data to the channel.
     pub fn send(&self, value: T) -> Result<(), T> {
-        match self.inner {
-            QueueType::Mutex(ref q) => q.push(value),
-            QueueType::LockFree(ref q) => q.push(value),
-        }
+        self.inner.send(value)
     }
 }
 
 impl<T: Send> Clone for Sender<T> {
     fn clone(&self) -> Sender<T> {
-        let inner = match self.inner {
-            QueueType::Mutex(ref q) => QueueType::Mutex(q.clone()),
-            QueueType::LockFree(ref q) => QueueType::LockFree(q.clone()),
-        };
-        Sender { inner: inner }
+        Sender { inner: self.inner.clone() }
     }
 }
 
 /// The receiving-half of the mpmc channel.
 pub struct Receiver<T> {
-    inner: QueueType<T>,
+    inner: Inner<T>,
 }
 
 impl<T: Send> Receiver<T> {
@@ -49,35 +65,20 @@ impl<T: Send> Receiver<T> {
     ///
     /// This method does not block and will return None if no data is available.
     pub fn recv(&self) -> Option<T> {
-        match self.inner {
-            QueueType::Mutex(ref q) => q.pop(),
-            QueueType::LockFree(ref q) => q.pop(),
-        }
+        self.inner.recv()
     }
 }
 
 impl<T: Send> Clone for Receiver<T> {
     fn clone(&self) -> Receiver<T> {
-        let inner = match self.inner {
-            QueueType::Mutex(ref q) => QueueType::Mutex(q.clone()),
-            QueueType::LockFree(ref q) => QueueType::LockFree(q.clone()),
-        };
-        Receiver { inner: inner }
+        Receiver { inner: self.inner.clone() }
     }
 }
 
 /// Create a channel pair using a lock-free queue with specified capacity.
 pub fn mpmc_channel<T: Send>(cap: usize) -> (Sender<T>, Receiver<T>) {
-    let q = Queue::with_capacity(cap);
-    let sn = Sender { inner: QueueType::LockFree(q.clone()) };
-    let rc = Receiver { inner: QueueType::LockFree(q.clone()) };
-    (sn, rc)
-}
-
-/// Create a channel pair using a mutex-locked queue.
-pub fn mutex_mpmc_channel<T: Send>() -> (Sender<T>, Receiver<T>) {
-    let q = MutexLinkedList::new();
-    let sn = Sender { inner: QueueType::Mutex(q.clone()) };
-    let rc = Receiver { inner: QueueType::Mutex(q.clone()) };
+    let inner = Inner::new(cap);
+    let sn = Sender { inner: inner.clone() };
+    let rc = Receiver { inner: inner };
     (sn, rc)
 }

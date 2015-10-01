@@ -70,11 +70,15 @@ unsafe impl<T: Send> Send for State<T> {}
 // managing the thread-safety of the struct we do not need a T: Sync bound.
 unsafe impl<T: Send> Sync for State<T> {}
 
-pub struct Queue<T> {
+/// A lock-free queue that is thread-safe for multiple producers and multiple consumers.
+///
+/// This queue is implemented as a bounded ring buffer and thus must initialized with
+/// a size at creation.
+pub struct LockFreeQueue<T> {
     state: Arc<State<T>>,
 }
 
-impl<T: Send> State<T> {
+impl<T> State<T> {
     fn with_capacity(capacity: usize) -> State<T> {
         let capacity = if capacity < 2 || (capacity & (capacity - 1)) != 0 {
             if capacity < 2 {
@@ -100,7 +104,9 @@ impl<T: Send> State<T> {
             pad3: [0; 64],
         }
     }
+}
 
+impl<T: Send> State<T> {
     fn push(&self, value: T) -> Result<(), T> {
         let mask = self.mask;
         let mut pos = self.enqueue_pos.load(Relaxed);
@@ -158,25 +164,34 @@ impl<T: Send> State<T> {
     }
 }
 
-impl<T: Send> Queue<T> {
-    pub fn with_capacity(capacity: usize) -> Queue<T> {
-        Queue{
+impl<T> LockFreeQueue<T> {
+    /// Create a LockFreeQueue with specified capacity.
+    pub fn with_capacity(capacity: usize) -> LockFreeQueue<T> {
+        LockFreeQueue{
             state: Arc::new(State::with_capacity(capacity))
         }
     }
+}
 
+impl<T: Send> LockFreeQueue<T> {
+    /// Push a value onto a queue.
+    ///
+    /// If the queue is full, the value is returned in the Err().
     pub fn push(&self, value: T) -> Result<(), T> {
         self.state.push(value)
     }
 
+    /// Pop a value from a queue.
+    ///
+    /// If the queue is empty, None is returned.
     pub fn pop(&self) -> Option<T> {
         self.state.pop()
     }
 }
 
-impl<T: Send> Clone for Queue<T> {
-    fn clone(&self) -> Queue<T> {
-        Queue { state: self.state.clone() }
+impl<T> Clone for LockFreeQueue<T> {
+    fn clone(&self) -> LockFreeQueue<T> {
+        LockFreeQueue { state: self.state.clone() }
     }
 }
 
@@ -185,13 +200,13 @@ mod tests {
     use std::thread;
     use std::sync::mpsc::channel;
     use mpmc::{mpmc_channel};
-    use super::Queue;
+    use super::LockFreeQueue;
 
     #[test]
     fn test() {
         let nthreads = 8;
         let nmsgs = 1000;
-        let q = Queue::with_capacity(nthreads*nmsgs);
+        let q = LockFreeQueue::with_capacity(nthreads*nmsgs);
         assert_eq!(None, q.pop());
         let (tx, rx) = channel();
 
