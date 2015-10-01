@@ -1,7 +1,8 @@
 //! A Single-Producer, Multiple-Consumer queue.
 
 use std::sync::mpsc::{channel, Receiver, RecvError, Sender, SendError};
-use std::sync::{Arc, RwLock, RwLockReadGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::marker::PhantomData;
 use std::fmt;
 use std::any::Any;
 use std::error::Error;
@@ -61,8 +62,8 @@ pub struct Broadcast<T> {
 impl<T> Broadcast<T> {
     /// Create a new Broadcast struct.
     pub fn new() -> Broadcast<T> {
-        let inner = Arc::new(Inner { senders: RwLock::new(Vec::new()) });
-        Broadcast { inner: inner }
+        let inner = Arc::new(Inner { senders: Mutex::new(Vec::new()) });
+        Broadcast { inner: inner, not_sync: PhantomData }
     }
 
     /// Create a Consumer that listens to messages from the Broadcaster.
@@ -85,30 +86,17 @@ impl<T: Clone> Broadcast<T> {
     }
 }
 
-// We implement Send/Sync here since we guarantee that the Sender<T>s in the
-// vec only have `send()` called by the Broadcast struct. We need sync in order
-// to share the vector with the Consumer to add senders too.
-//
-// TODO: Is there a way to not need to implement these traits?
-//
-// The same trait bounds on T are used here as in RwLock.
-unsafe impl<T: Sync + Send + Sized> Sync for Inner<T> {}
-unsafe impl<T: Sync + Send + Sized> Send for Inner<T> {}
 struct Inner<T> {
-    senders: RwLock<Vec<Sender<T>>>,
+    senders: Mutex<Vec<Sender<T>>>,
 }
 
 impl<T> Inner<T> {
-    // This should only be called by Broadcast. Something may or may not go
-    // horriblely wrong if send() is called from multiple threads.
-    //
-    // TODO: Disallow Consumer from calling this.
-    fn read_senders<'a>(&'a self) -> RwLockReadGuard<'a, Vec<Sender<T>>> {
-        self.senders.read().unwrap()
+    fn read_senders<'a>(&'a self) -> MutexGuard<'a, Vec<Sender<T>>> {
+        self.senders.lock().unwrap()
     }
 
     fn add_sender(&self, sender: Sender<T>) {
-        let mut vec = self.senders.write().unwrap();
+        let mut vec = self.senders.lock().unwrap();
         vec.push(sender);
     }
 }
@@ -152,7 +140,7 @@ mod test {
     use broadcast::broadcast_channel;
     use super::Inner;
 
-    use std::sync::{Arc, RwLock};
+    use std::sync::{Arc, Mutex};
     use std::sync::mpsc::{channel};
     use std::thread::spawn;
 
@@ -160,7 +148,7 @@ mod test {
     fn inner_iterator() {
         let (s1, r1) = channel();
         let (s2, r2) = channel();
-        let inner = Arc::new(Inner { senders: RwLock::new(vec!(s1, s2)) });
+        let inner = Arc::new(Inner { senders: Mutex::new(vec!(s1, s2)) });
         let guard = inner.read_senders();
         for s in guard.iter() {
             assert!(s.send(10u8).is_ok());
