@@ -2,7 +2,6 @@
 
 use std::sync::mpsc::{channel, Receiver, RecvError, Sender, SendError};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::marker::PhantomData;
 use std::fmt;
 use std::any::Any;
 use std::error::Error;
@@ -63,7 +62,7 @@ impl<T> Broadcast<T> {
     /// Create a new Broadcast struct.
     pub fn new() -> Broadcast<T> {
         let inner = Arc::new(Inner { senders: Mutex::new(Vec::new()) });
-        Broadcast { inner: inner, not_sync: PhantomData }
+        Broadcast { inner: inner }
     }
 
     /// Create a Consumer that listens to messages from the Broadcaster.
