@@ -30,7 +30,6 @@
 // This queue is copy pasted from old rust stdlib.
 // And some changes from https://github.com/carllerche/mio
 
-use std::sync::Arc;
 use std::cell::UnsafeCell;
 
 use std::sync::atomic::AtomicUsize;
@@ -44,7 +43,11 @@ struct Node<T> {
 unsafe impl<T: Send> Send for Node<T> {}
 unsafe impl<T: Sync> Sync for Node<T> {}
 
-struct State<T> {
+/// A lock-free queue that is thread-safe for multiple producers and multiple consumers.
+///
+/// This queue is implemented as a bounded ring buffer and thus must be initialized with
+/// a size at creation.
+pub struct LockFreeQueue<T> {
     #[allow(dead_code)]
     pad0: [u8; 64],
 
@@ -65,21 +68,14 @@ struct State<T> {
     pad3: [u8; 64],
 }
 
-unsafe impl<T: Send> Send for State<T> {}
+unsafe impl<T: Send> Send for LockFreeQueue<T> {}
 // Is this the correct thing to do? My intuition is that since we are explicitly
 // managing the thread-safety of the struct we do not need a T: Sync bound.
-unsafe impl<T: Send> Sync for State<T> {}
+unsafe impl<T: Send> Sync for LockFreeQueue<T> {}
 
-/// A lock-free queue that is thread-safe for multiple producers and multiple consumers.
-///
-/// This queue is implemented as a bounded ring buffer and thus must initialized with
-/// a size at creation.
-pub struct LockFreeQueue<T> {
-    state: Arc<State<T>>,
-}
-
-impl<T> State<T> {
-    fn with_capacity(capacity: usize) -> State<T> {
+impl<T> LockFreeQueue<T> {
+    /// Create a LockFreeQueue with specified capacity.
+    pub fn with_capacity(capacity: usize) -> LockFreeQueue<T> {
         let capacity = if capacity < 2 || (capacity & (capacity - 1)) != 0 {
             if capacity < 2 {
                 2
@@ -93,7 +89,8 @@ impl<T> State<T> {
         let buffer = (0..capacity).map(|i| {
             UnsafeCell::new(Node { sequence:AtomicUsize::new(i), value: None })
         }).collect::<Vec<_>>();
-        State{
+
+        LockFreeQueue{
             pad0: [0; 64],
             buffer: buffer,
             mask: capacity-1,
@@ -106,8 +103,11 @@ impl<T> State<T> {
     }
 }
 
-impl<T: Send> State<T> {
-    fn push(&self, value: T) -> Result<(), T> {
+impl<T: Send> LockFreeQueue<T> {
+    /// Push a value onto a queue.
+    ///
+    /// If the queue is full, the value is returned in the Err().
+    pub fn push(&self, value: T) -> Result<(), T> {
         let mask = self.mask;
         let mut pos = self.enqueue_pos.load(Relaxed);
         loop {
@@ -136,7 +136,10 @@ impl<T: Send> State<T> {
         Ok(())
     }
 
-    fn pop(&self) -> Option<T> {
+    /// Pop a value from a queue.
+    ///
+    /// If the queue is empty, None is returned.
+    pub fn pop(&self) -> Option<T> {
         let mask = self.mask;
         let mut pos = self.dequeue_pos.load(Relaxed);
         loop {
@@ -164,49 +167,18 @@ impl<T: Send> State<T> {
     }
 }
 
-impl<T> LockFreeQueue<T> {
-    /// Create a LockFreeQueue with specified capacity.
-    pub fn with_capacity(capacity: usize) -> LockFreeQueue<T> {
-        LockFreeQueue{
-            state: Arc::new(State::with_capacity(capacity))
-        }
-    }
-}
-
-impl<T: Send> LockFreeQueue<T> {
-    /// Push a value onto a queue.
-    ///
-    /// If the queue is full, the value is returned in the Err().
-    pub fn push(&self, value: T) -> Result<(), T> {
-        self.state.push(value)
-    }
-
-    /// Pop a value from a queue.
-    ///
-    /// If the queue is empty, None is returned.
-    pub fn pop(&self) -> Option<T> {
-        self.state.pop()
-    }
-}
-
-impl<T> Clone for LockFreeQueue<T> {
-    fn clone(&self) -> LockFreeQueue<T> {
-        LockFreeQueue { state: self.state.clone() }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::thread;
+    use std::sync::{Arc};
     use std::sync::mpsc::channel;
-    use mpmc::{mpmc_channel};
     use super::LockFreeQueue;
 
     #[test]
     fn test() {
         let nthreads = 8;
         let nmsgs = 1000;
-        let q = LockFreeQueue::with_capacity(nthreads*nmsgs);
+        let q = Arc::new(LockFreeQueue::with_capacity(nthreads*nmsgs));
         assert_eq!(None, q.pop());
         let (tx, rx) = channel();
 
@@ -248,42 +220,6 @@ mod tests {
         }
         for _ in (0..nthreads) {
             rx.recv().unwrap();
-        }
-    }
-
-    #[test]
-    fn test_producer_consumer() {
-        let (sn, rc) = mpmc_channel(25);
-
-        let mut guard_vec = Vec::new();
-        for i in 0..10 {
-            let sn = sn.clone();
-            guard_vec.push(thread::spawn(move || {
-                assert!(sn.send(i as u8).is_ok());
-            }));
-        }
-
-        for x in guard_vec.into_iter() {
-            x.join().unwrap();
-        }
-
-        guard_vec = Vec::new();
-        for _i in 0..10 {
-            let rc = rc.clone();
-            guard_vec.push(thread::spawn(move || {
-                let popped = rc.recv().unwrap();
-                let mut found = false;
-                for x in 0..10 {
-                    if popped == x {
-                        found = true
-                    }
-                }
-                assert!(found);
-            }));
-        }
-
-        for x in guard_vec.into_iter() {
-            x.join().unwrap();
         }
     }
 }
