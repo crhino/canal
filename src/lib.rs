@@ -1,5 +1,4 @@
-#![cfg_attr(feature = "nightly", feature(box_raw))]
-#![deny(missing_docs)]
+#![deny(missing_docs, dead_code)]
 
 //! ### Canal
 //!
