@@ -30,6 +30,7 @@ const MAX_STEALS: isize = 1 << 20;
 pub struct Canal<T> {
     queue: LockFreeQueue<T>,
     cnt: AtomicIsize, // How many items are on this channel
+    // TODO: Make this atomic since we now have many receivers
     steals: isize, // How many times has a port received without blocking?
 
     should_block: Mutex<bool>, // tells ports that they should block
@@ -58,7 +59,7 @@ impl<T> Canal<T> {
             queue: LockFreeQueue::with_capacity(cap),
             cnt: AtomicIsize::new(0),
             steals: 0,
-            should_block: Mutex::new(true),
+            should_block: Mutex::new(false),
             block_condvar: Condvar::new(),
             // TODO: Why did these AtomicIsize have an initialization of 2 before?
             channels: AtomicIsize::new(1),
@@ -112,7 +113,17 @@ impl<T: Send> Canal<T> {
 
         try!(self.queue.push(t));
         match self.cnt.fetch_add(1, Ordering::SeqCst) {
-            -1 => {
+            // Because multiple consumers and be decrementing cnt at once,
+            // we do a ranged check here as well. We use the same fudge as
+            // the DISCONNECT case in order to make sure the two cases do
+            // not end up colliding with each other.
+            //
+            // The two cases are inherently racy, so we cannot ensure exact
+            // numbers for the cnt in either case, thus we keep them far apart.
+            //
+            // TODO: This in essence limits the number of ports we can have. We would
+            // like to have an arbitrary amount.
+            n if n <= -1 && n > -1 - FUDGE  => {
                 self.wake_port();
             }
 
@@ -128,7 +139,6 @@ impl<T: Send> Canal<T> {
             n if n < DISCONNECTED + FUDGE => {
                 // see the comment in 'try' for a shared channel for why this
                 // window of "not disconnected" is ok.
-                println!("Storing DISCONNECTED");
                 self.cnt.store(DISCONNECTED, Ordering::SeqCst);
 
                 if self.sender_drain.fetch_add(1, Ordering::SeqCst) == 0 {
@@ -185,18 +195,22 @@ impl<T: Send> Canal<T> {
     // Essentially the exact same thing as the stream decrement function.
     // Returns Some((guard, condvar)) if blocking should proceed.
     fn decrement<'a>(&'a mut self) -> Option<(MutexGuard<'a, bool>, &'a Condvar)> {
-        let block = self.should_block.lock().unwrap();
+        let mut block = self.should_block.lock().expect("Lock was posioned");
 
         let steals = self.steals;
         self.steals = 0;
 
+        // A -1 cnt value means that we need to wake someone up/block
         match self.cnt.fetch_sub(1 + steals, Ordering::SeqCst) {
             DISCONNECTED => { self.cnt.store(DISCONNECTED, Ordering::SeqCst); }
             // If we factor in our steals and notice that the channel has no
             // data, we successfully sleep
             n => {
-                assert!(n >= 0);
-                if n - steals <= 0 { return Some((block, &self.block_condvar)) }
+                assert!(n > -1 - FUDGE); // See send() for more details.
+                if n - steals <= 0 {
+                    *block = true;
+                    return Some((block, &self.block_condvar))
+                }
             }
         }
 
@@ -331,6 +345,9 @@ impl<T> Drop for Canal<T> {
 #[cfg(test)]
 mod tests {
     use super::Canal;
+    use mpmc::mpmc_channel;
+    use std::thread;
+    use std::sync::{Arc, Barrier};
 
     #[test]
     fn test_send_recv() {
@@ -353,5 +370,48 @@ mod tests {
 
         canal.drop_port();
         canal.drop_chan();
+    }
+
+    #[test]
+    fn test_send_full() {
+        let canal = Canal::new(2);
+        assert!(canal.send(1 as u8).is_ok());
+        assert!(canal.send(2 as u8).is_ok());
+        assert!(canal.send(3 as u8).is_err());
+        canal.drop_port();
+        canal.drop_chan();
+    }
+
+    #[test]
+    fn test_blocking() {
+        let (sn, rc) = mpmc_channel(5);
+
+        let barrier = Arc::new(Barrier::new(6));
+        let mut recv_vec = Vec::new();
+        for _i in 0..5 {
+            let b = barrier.clone();
+            let r = rc.clone();
+            recv_vec.push(thread::spawn(move || {
+                b.wait();
+                let popped = r.recv().unwrap();
+                let mut found = false;
+                for x in 0..5 {
+                    if popped == x {
+                        found = true
+                    }
+                }
+                assert!(found);
+            }));
+        }
+
+        barrier.wait(); // Wait for all threads to start.
+        thread::yield_now(); // yeild current thread to ensure recv's block
+        for i in 0..5 {
+            sn.send(i as u8).unwrap();
+        }
+
+        for thr in recv_vec.into_iter() {
+            thr.join().unwrap();
+        }
     }
 }
