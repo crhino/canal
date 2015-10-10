@@ -61,7 +61,6 @@ impl<T> Canal<T> {
             steals: 0,
             should_block: Mutex::new(false),
             block_condvar: Condvar::new(),
-            // TODO: Why did these AtomicIsize have an initialization of 2 before?
             channels: AtomicIsize::new(1),
             ports: AtomicIsize::new(1),
             sender_drain: AtomicIsize::new(0),
