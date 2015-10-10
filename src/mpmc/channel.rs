@@ -70,14 +70,6 @@ impl<T> Canal<T> {
 }
 
 impl<T: Send> Canal<T> {
-    // pub fn send(&self, val: T) -> Result<(), T> {
-    //     self.queue.push(val)
-    // }
-
-    // pub fn recv(&self) -> Option<T> {
-    //     self.queue.pop()
-    // }
-
     pub fn send(&self, t: T) -> Result<(), T> {
         // See Port::drop for what's going on
         if self.ports.load(Ordering::SeqCst) == 0 { return Err(t) }

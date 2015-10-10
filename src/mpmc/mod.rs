@@ -23,6 +23,9 @@ unsafe impl<T: Send> Send for Sender<T> {}
 
 impl<T: Send> Sender<T> {
     /// Sends data to the channel.
+    ///
+    /// This method will never block, but may return an error with the value
+    /// returned in the Err(..).
     pub fn send(&self, value: T) -> Result<(), T> {
         unsafe {
             (*self.inner.get()).send(value)
@@ -56,10 +59,10 @@ pub struct Receiver<T: Send> {
 unsafe impl<T: Send> Send for Receiver<T> {}
 
 impl<T: Send> Receiver<T> {
-    // TODO: Should this block?
     /// Receive data from the channel.
     ///
-    /// This method does not block and will return None if no data is available.
+    /// This method will block until either new data is sent or all senders have
+    /// disconnected.
     pub fn recv(&self) -> Result<T, Failure> {
         unsafe {
             (*self.inner.get()).recv()
