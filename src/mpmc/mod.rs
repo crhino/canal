@@ -88,6 +88,9 @@ impl<T: Send> Drop for Receiver<T> {
 }
 
 /// Create a channel pair using a lock-free queue with specified capacity.
+///
+/// Note: This is not ready for use in production, some bugs are still
+/// being actively worked out.
 pub fn mpmc_channel<T: Send>(cap: usize) -> (Sender<T>, Receiver<T>) {
     let inner = Arc::new(UnsafeCell::new(Canal::new(cap)));
     let sn = Sender { inner: inner.clone() };
