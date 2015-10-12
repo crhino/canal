@@ -1,4 +1,5 @@
 #![deny(missing_docs, dead_code)]
+#![feature(optin_builtin_traits)]
 
 //! ### Canal
 //!
