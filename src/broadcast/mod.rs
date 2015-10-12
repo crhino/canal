@@ -96,7 +96,9 @@ impl<T> Inner<T> {
 
     fn add_sender(&self, sender: Sender<T>) {
         let mut vec = self.senders.lock().unwrap();
-        vec.push(sender);
+        // Clone the sender to ensure we receive a shared::Packet that
+        // doese not perform allocations on sending
+        vec.push(sender.clone());
     }
 }
 
