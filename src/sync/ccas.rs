@@ -5,17 +5,21 @@
 
 use std::sync::atomic::{Ordering, AtomicUsize, AtomicPtr};
 use std::sync::{Arc};
-use std::mem;
+use std::ptr;
 
-struct Descriptor<T> {
+use sync::utils::*;
+
+struct CCASDescriptor<T> {
     current: *mut T,
     new: *mut T,
     cond: Arc<AtomicUsize>,
 }
 
-impl<T> Descriptor<T> {
-    fn new(current: *mut T, new: *mut T, cond: Arc<AtomicUsize>) -> Descriptor<T> {
-        Descriptor {
+impl<T> Descriptor<T> for CCASDescriptor<T> {}
+
+impl<T> CCASDescriptor<T> {
+    fn new(current: *mut T, new: *mut T, cond: Arc<AtomicUsize>) -> CCASDescriptor<T> {
+        CCASDescriptor {
             current: current,
             new: new,
             cond: cond,
@@ -46,40 +50,43 @@ impl<T> CondAtomicPtr<T> {
         }
     }
 
-    /// No return value, read Section 5.4 of paper for more background
     pub fn conditional_compare_and_swap(&self,
                                         current: *mut T,
                                         new: *mut T,
                                         cond: Arc<AtomicUsize>,
-                                        ordering: Ordering) {
-        let desc = &mut Descriptor::new(current, new, cond);
+                                        ordering: Ordering) -> *mut T {
+        let desc = &mut CCASDescriptor::new(current, new, cond);
         let curr = desc.current_value();
         let desc = unsafe {
             transmute_desc_to_t(desc)
         };
 
-        loop {
-            let prev = self.inner.compare_and_swap(curr, desc, ordering);
-            if prev == curr { break };
-            if !is_descriptor(prev) { return };
+        let mut prev = ptr::null_mut();
+        while {
+            prev = self.inner.compare_and_swap(curr, desc, ordering);
+            prev != curr
+        } {
+            if !is_descriptor(prev) { return prev };
+            self.ccas_help(prev, ordering);
         }
 
         self.ccas_help(desc, ordering);
+        prev
     }
 
     pub fn load(&self, ordering: Ordering) -> *mut T {
-        loop {
-            let desc = self.inner.load(ordering);
-            if !is_descriptor(desc) { return desc };
+        let mut desc = self.inner.load(ordering);
+        while is_descriptor(desc) {
             self.ccas_help(desc, Ordering::SeqCst);
+            desc = self.inner.load(ordering);
         }
 
-        unreachable!();
+        desc
     }
 
     fn ccas_help(&self, desc: *mut T, ordering: Ordering) {
         unsafe {
-            let desc = transmute_t_to_desc(desc);
+            let desc: *mut CCASDescriptor<T> = transmute_t_to_desc(desc);
             let cas_val = if (*desc).load_condition(Ordering::SeqCst) == 0 {
                 (*desc).new_value()
             } else {
@@ -90,39 +97,6 @@ impl<T> CondAtomicPtr<T> {
             self.inner.compare_and_swap(desc, cas_val, ordering);
         }
     }
-}
-
-/// Here we need to decide whether the pointer specified is a ptr to a real T object
-/// or to a descriptor. This is done by using the one low-order bit of the ptr.
-///
-/// If that bit is set to 1, than the ptr is a descriptor, if it is 0, then it is not.
-#[inline]
-fn is_descriptor<T>(ptr: *mut T) -> bool {
-    ((ptr as usize) & 1) == 1
-}
-
-/// Set the 0th bit of the pointer to 1 in order to represent it as a descriptor value
-#[inline]
-unsafe fn set_descriptor<T>(ptr: *mut T) -> *mut T {
-    assert!(!is_descriptor(ptr));
-    ((ptr as usize) | 1) as *mut T
-}
-
-/// Set the 0th bit of the pointer to 0 in order to represent it as a ptr to T value
-#[inline]
-unsafe fn unset_descriptor<T>(ptr: *mut T) -> *mut T {
-    assert!(is_descriptor(ptr));
-    (((ptr as usize) >> 1) << 1) as *mut T
-}
-
-#[inline]
-unsafe fn transmute_t_to_desc<T>(desc: *mut T) -> *mut Descriptor<T> {
-    mem::transmute(unset_descriptor(desc))
-}
-
-#[inline]
-unsafe fn transmute_desc_to_t<T>(desc: *mut Descriptor<T>) -> *mut T {
-    mem::transmute(set_descriptor(desc))
 }
 
 #[cfg(test)]
@@ -157,7 +131,11 @@ mod tests {
         let mut new_val = Test::new(1, 2);
         let cond = Arc::new(AtomicUsize::new(0));
 
-        ptr.conditional_compare_and_swap(&mut val, &mut new_val, cond, Ordering::SeqCst);
+        let old = ptr.conditional_compare_and_swap(&mut val,
+                                                   &mut new_val,
+                                                   cond, Ordering::SeqCst);
+        let data = unsafe { (*old).data() };
+        assert_eq!(data, (27, 36));
 
         let new_ptr = ptr.load(Ordering::SeqCst);
         let data = unsafe { (*new_ptr).data() };
@@ -187,7 +165,7 @@ mod tests {
         let val_ptr = (&val as *const Test) as usize;
 
         crossbeam::scope(|scope| {
-            for _i in 0..50 {
+            for _i in 0..20 {
                 let c = cond.clone();
                 scope.spawn(|| {
                     let mut new_val = Test::new(1, 1);
