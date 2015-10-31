@@ -13,9 +13,7 @@ rust:
   - beta
   # check it compiles on the latest stable compiler
   - stable
-  # and the first stable one (this should be bumped as the minimum
-  # Rust version required changes)
-  - 1.0.0
+  - 1.4.0
 
 # load travis-cargo
 before_script:
@@ -34,4 +32,4 @@ script:
 env:
   global:
     # override the default `--features unstable` used for the nightly branch (optional)
-    - TRAVIS_CARGO_NIGHTLY_FEATURE=nightly
+    - TRAVIS_CARGO_NIGHTLY_FEATURE=""

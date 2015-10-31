@@ -1,5 +1,3 @@
-#![cfg(feature = "nightly")]
-
 //! A multi-producer, multi-consumer channel implementation.
 
 mod mutex_linked_list;
