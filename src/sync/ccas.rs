@@ -39,14 +39,14 @@ impl<T> CCASDescriptor<T> {
     }
 }
 
-pub struct CondAtomicPtr<T> {
-    inner: AtomicPtr<T>,
+pub struct CondAtomicPtr<'a, T: 'a> {
+    inner: &'a AtomicPtr<T>,
 }
 
-impl<T> CondAtomicPtr<T> {
-    pub fn new(val: *mut T) -> CondAtomicPtr<T> {
+impl<'a, T> CondAtomicPtr<'a, T> {
+    pub fn new(val: &'a AtomicPtr<T>) -> CondAtomicPtr<T> {
         CondAtomicPtr {
-            inner: AtomicPtr::new(val),
+            inner: val,
         }
     }
 
@@ -103,7 +103,7 @@ impl<T> CondAtomicPtr<T> {
 mod tests {
     use crossbeam;
     use std::sync::{Arc};
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
     use super::CondAtomicPtr;
     struct Test {
         data: usize,
@@ -126,7 +126,8 @@ mod tests {
     #[test]
     fn test_ccas() {
         let mut val = Test::new(27, 36);
-        let ptr = CondAtomicPtr::new(&mut val);
+        let atm = AtomicPtr::new(&mut val);
+        let ptr = CondAtomicPtr::new(&atm);
 
         let mut new_val = Test::new(1, 2);
         let cond = Arc::new(AtomicUsize::new(0));
@@ -145,7 +146,8 @@ mod tests {
     #[test]
     fn test_ccas_cond_false() {
         let mut val = Test::new(27, 36);
-        let ptr = CondAtomicPtr::new(&mut val);
+        let atm = AtomicPtr::new(&mut val);
+        let ptr = CondAtomicPtr::new(&atm);
 
         let mut new_val = Test::new(1, 2);
         let cond = Arc::new(AtomicUsize::new(1));
@@ -160,7 +162,8 @@ mod tests {
     #[test]
     fn test_ccas_many_threads() {
         let mut val = Test::new(27, 36);
-        let ptr = CondAtomicPtr::new(&mut val);
+        let atm = AtomicPtr::new(&mut val);
+        let ptr = CondAtomicPtr::new(&atm);
         let cond = Arc::new(AtomicUsize::new(0));
         let val_ptr = (&val as *const Test) as usize;
 
